@@ -91,7 +91,6 @@ def prepare_data(df):
 st.sidebar.title("📊 Ecom Insight")
 st.sidebar.caption("Phân tích kinh doanh thương mại điện tử")
 uploaded = st.sidebar.file_uploader("Tải dữ liệu đơn hàng CSV", type=["csv"])
-    try:
 if uploaded is not None:
     try:
         raw_data = pd.read_csv(uploaded)
