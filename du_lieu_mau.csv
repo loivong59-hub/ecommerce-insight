@@ -1,11 +1,62 @@
-Ma_don_hang,Ngay_dat,Khach_hang,San_pham,Danh_muc,So_luong,Don_gia,Giam_gia,Kenh_ban,Trang_thai
-DH0001,2026-10-01,Nguyen Minh Anh,Tai nghe Bluetooth,Dien tu,2,450000,20000,Shopee,Hoan thanh
-DH0002,2026-10-02,Tran Gia Huy,Ao thun,Thoi trang,1,180000,0,TikTok Shop,Hoan thanh
-DH0003,2026-10-03,Le Hoang Yen,Binh giu nhiet,Gia dung,2,220000,10000,Website,Hoan thanh
-DH0004,2026-10-04,Pham Tuan Kiet,Chuot khong day,Dien tu,1,250000,0,Shopee,Dang giao
-DH0005,2026-10-05,Vo Ngoc Ha,Giay the thao,Thoi trang,1,650000,30000,Facebook,Hoan thanh
-DH0006,2026-10-06,Dang Quoc Bao,Balo laptop,Phu kien,2,390000,20000,Shopee,Hoan thanh
-DH0007,2026-10-07,Bui Thanh Tam,Op dien thoai,Phu kien,3,90000,0,TikTok Shop,Da huy
-DH0008,2026-10-08,Huynh Duc Long,Den ban,Gia dung,1,280000,10000,Website,Hoan thanh
-DH0009,2026-10-09,Do Khanh Linh,Tai nghe Bluetooth,Dien tu,1,450000,0,Shopee,Hoan thanh
-DH0010,2026-10-10,Phan Nhat Nam,Ao thun,Thoi trang,2,180000,10000,TikTok Shop,Hoan thanh
+import unicodedata, re   # thêm vào cùng chỗ các import khác
+
+ALIASES = {
+    "Ma_don_hang": ["ma_don_hang", "ma_don", "order_id", "id"],
+    "Ngay_dat":   ["ngay_dat", "ngay", "ngay_dat_hang", "ngay_mua", "order_date", "date"],
+    "Khach_hang": ["khach_hang", "ten_khach_hang", "ten_kh", "khach", "customer", "customer_name"],
+    "San_pham":   ["san_pham", "ten_san_pham", "ten_hang", "product", "product_name", "item"],
+    "So_luong":   ["so_luong", "sl", "quantity", "qty"],
+    "Don_gia":    ["don_gia", "gia", "gia_ban", "price", "unit_price"],
+    "Giam_gia":   ["giam_gia", "chiet_khau", "discount"],
+    "Danh_muc":   ["danh_muc", "nhom_hang", "loai", "category"],
+    "Kenh_ban":   ["kenh_ban", "kenh", "nen_tang", "channel"],
+    "Trang_thai": ["trang_thai", "tinh_trang", "status"],
+}
+
+def norm_col(s):
+    s = str(s).replace("đ", "d").replace("Đ", "D")
+    s = unicodedata.normalize("NFD", s)
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    return re.sub(r"[^a-z0-9]+", "_", s.lower()).strip("_")
+
+def standardize_columns(df):
+    lookup = {a: canon for canon, names in ALIASES.items() for a in names}
+    rename = {}
+    for col in df.columns:
+        key = norm_col(col)
+        if key in lookup and lookup[key] not in rename.values():
+            rename[col] = lookup[key]
+    return df.rename(columns=rename)
+
+def prepare_data(df):
+    df = standardize_columns(df.copy())
+    required = ["Ngay_dat", "Khach_hang", "San_pham", "So_luong", "Don_gia"]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        st.error("File CSV thiếu cột: " + ", ".join(missing))
+        st.write("Các cột app đọc được trong file của bạn:", list(df.columns))
+        st.stop()
+
+    df["Ngay_dat"] = pd.to_datetime(df["Ngay_dat"], errors="coerce", dayfirst=True)
+    df["So_luong"] = pd.to_numeric(df["So_luong"], errors="coerce").fillna(0)
+    df["Don_gia"] = pd.to_numeric(df["Don_gia"], errors="coerce").fillna(0)
+    if "Giam_gia" not in df.columns:
+        df["Giam_gia"] = 0
+    df["Giam_gia"] = pd.to_numeric(df["Giam_gia"], errors="coerce").fillna(0)
+    for col, default in [("Danh_muc", "Chưa phân loại"),
+                         ("Kenh_ban", "Không xác định"),
+                         ("Trang_thai", "Hoàn thành")]:
+        if col not in df.columns:
+            df[col] = default
+    df = df.dropna(subset=["Ngay_dat", "Khach_hang", "San_pham"])
+    df["Doanh_thu"] = (df["So_luong"] * df["Don_gia"] - df["Giam_gia"]).clip(lower=0)
+    return df
+
+def read_csv_smart(file):
+    for enc in ("utf-8-sig", "cp1258", "latin-1"):
+        try:
+            file.seek(0)
+            return pd.read_csv(file, sep=None, engine="python", encoding=enc)
+        except UnicodeDecodeError:
+            continue
+    raise ValueError("Không đọc được bảng mã của file CSV")
